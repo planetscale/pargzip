@@ -50,3 +50,46 @@ func TestWriter(t *testing.T) {
 	}
 	t.Logf("correctly read back %d bytes", back.Len())
 }
+
+func TestNoWrite(t *testing.T) {
+	var zbuf bytes.Buffer
+	zw := NewWriter(&zbuf)
+	if err := zw.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	var back bytes.Buffer
+	zr, err := gzip.NewReader(bytes.NewReader(zbuf.Bytes()))
+	if err != nil {
+		t.Fatalf("NewReader: %v", err)
+	}
+	if _, err := io.Copy(&back, zr); err != nil {
+		t.Fatalf("uncompress Copy: %v", err)
+	}
+	if !bytes.Equal([]byte{}, back.Bytes()) {
+		t.Error("decompression failed.")
+	}
+	t.Logf("correctly read back %d bytes", back.Len())
+}
+
+func TestZeroLengthWrite(t *testing.T) {
+	var zbuf bytes.Buffer
+	zw := NewWriter(&zbuf)
+	zw.Write([]byte{})
+	if err := zw.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	var back bytes.Buffer
+	zr, err := gzip.NewReader(bytes.NewReader(zbuf.Bytes()))
+	if err != nil {
+		t.Fatalf("NewReader: %v", err)
+	}
+	if _, err := io.Copy(&back, zr); err != nil {
+		t.Fatalf("uncompress Copy: %v", err)
+	}
+	if !bytes.Equal([]byte{}, back.Bytes()) {
+		t.Error("decompression failed.")
+	}
+	t.Logf("correctly read back %d bytes", back.Len())
+}

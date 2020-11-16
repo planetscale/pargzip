@@ -50,6 +50,7 @@ type Writer struct {
 
 	allWritten  chan struct{} // when writing goroutine ends
 	wasWriteErr chan struct{} // closed after 'err' set
+	wroteChunk  bool          // did we ever write any chunks?
 
 	sem    chan bool        // semaphore bounding compressions in flight
 	chunkc chan *writeChunk // closed on Close
@@ -130,6 +131,9 @@ func (w *Writer) init() {
 				close(w.wasWriteErr)
 				return
 			}
+			if !w.wroteChunk {
+				w.wroteChunk = true
+			}
 		}
 	}()
 }
@@ -185,7 +189,9 @@ func (w *Writer) Close() error {
 		return nil
 	}
 	if !w.didInit() {
-		return nil
+		// Our Write() method was never called so we have no data,
+		// but we still need to produce a valid gzip header.
+		return w.writeEmptyData()
 	}
 	if err != nil {
 		return err
@@ -198,7 +204,26 @@ func (w *Writer) Close() error {
 	w.mu.Lock()
 	err = w.err
 	w.mu.Unlock()
-	return err
+	if err != nil {
+		return err
+	}
+
+	if !w.wroteChunk {
+		// Write() was called at least once, but we never actually produced any
+		// chunks (because we were sent an empty slice). We therefore have no
+		// data, but we still need to produce a valid gzip header.
+		return w.writeEmptyData()
+	}
+
+	return nil
+}
+
+func (w *Writer) writeEmptyData() error {
+	zw, err := gzip.NewWriterLevel(w.w, w.CompressionLevel)
+	if err != nil {
+		return err
+	}
+	return zw.Close()
 }
 
 // newChunkWriter gets large chunks to compress and write to zw.
