@@ -27,6 +27,7 @@ func TestWriter(t *testing.T) {
 	zw := NewWriter(&zbuf)
 	zw.ChunkSize = 1 << 20
 	zw.Parallel = 4
+	zw.CompressionLevel = BestCompression
 	t0 := time.Now()
 	if n, err := io.Copy(zw, bytes.NewReader(in.Bytes())); err != nil {
 		t.Fatalf("Copy: %v", err)

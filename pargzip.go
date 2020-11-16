@@ -17,6 +17,16 @@ import (
 	"sync"
 )
 
+// These constants are copied from the gzip package, so that code that imports
+// pargzip does not also have to import compress/gzip.
+const (
+	NoCompression      = gzip.NoCompression
+	BestSpeed          = gzip.BestSpeed
+	BestCompression    = gzip.BestCompression
+	DefaultCompression = gzip.DefaultCompression
+	HuffmanOnly        = gzip.HuffmanOnly
+)
+
 // A Writer is an io.WriteCloser.
 // Writes to a Writer are compressed and written to w.
 //
@@ -30,6 +40,10 @@ type Writer struct {
 	// Parallel is the number of chunks to compress in parallel.
 	// The default from NewWriter is runtime.NumCPU().
 	Parallel int
+
+	// CompressionLevel is the compression level to use for gzip.
+	// The default from NewWriter is DefaultCompression.
+	CompressionLevel int
 
 	w  io.Writer
 	bw *bufio.Writer
@@ -49,6 +63,8 @@ type writeChunk struct {
 	zw *Writer
 	p  string // uncompressed
 
+	compressionLevel int
+
 	donec chan struct{} // closed on completion
 
 	// one of following is set:
@@ -67,7 +83,10 @@ func (c *writeChunk) compress() (err error) {
 		<-c.zw.sem
 	}()
 	var zbuf bytes.Buffer
-	zw := gzip.NewWriter(&zbuf)
+	zw, err := gzip.NewWriterLevel(&zbuf, c.compressionLevel)
+	if err != nil {
+		return err
+	}
 	if _, err := io.Copy(zw, strings.NewReader(c.p)); err != nil {
 		return err
 	}
@@ -92,8 +111,9 @@ func NewWriter(w io.Writer) *Writer {
 		allWritten:  make(chan struct{}),
 		wasWriteErr: make(chan struct{}),
 
-		ChunkSize: 1 << 20,
-		Parallel:  runtime.NumCPU(),
+		ChunkSize:        1 << 20,
+		Parallel:         runtime.NumCPU(),
+		CompressionLevel: DefaultCompression,
 	}
 }
 
@@ -117,9 +137,10 @@ func (w *Writer) init() {
 func (w *Writer) startChunk(p []byte) {
 	w.sem <- true // block until we can begin
 	c := &writeChunk{
-		zw:    w,
-		p:     string(p), // string, since the bufio.Writer owns the slice
-		donec: make(chan struct{}),
+		zw:               w,
+		p:                string(p), // string, since the bufio.Writer owns the slice
+		donec:            make(chan struct{}),
+		compressionLevel: w.CompressionLevel,
 	}
 	go c.compress() // receives from w.sem
 	select {
